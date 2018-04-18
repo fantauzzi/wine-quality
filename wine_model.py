@@ -71,18 +71,45 @@ def train(model, X, y, batch_size, epochs):
 
     return loss_by_epoch, accuracy_by_epoch
 
+def absolute_difference(y1, y2):
+    res = tf.reduce_mean(tf.cast(tf.abs(tf.argmax(y1, output_type=tf.int32, axis=1) -tf.argmax(y2, output_type=tf.int32, axis=1)), tf.float32))
+    return res
+
+
 
 def get_compiled_model():
+    alpha = .0
+    # activation = tf.keras.layers.LeakyReLU(alpha=alpha)
+    activation='tanh'
     model = tf.keras.models.Sequential([
         tf.keras.layers.InputLayer(input_shape=(11,)),
-        tf.keras.layers.Dense(64, activation='relu'),
-        tf.keras.layers.Dense(32, activation='relu'),
+        # tf.keras.layers.Dense(256),
+        # tf.keras.layers.LeakyReLU(alpha=alpha),
+        tf.keras.layers.Dense(192, activation=activation),
+        # tf.keras.layers(alpha=alpha),
+        tf.keras.layers.Dropout(rate=.5),
+        tf.keras.layers.Dense(96, activation=activation),
+        # tf.keras.layers.LeakyReLU(alpha=alpha),
+        tf.keras.layers.Dense(48, activation=activation),
+        # tf.keras.layers.LeakyReLU(alpha=alpha),
         tf.keras.layers.Dense(11, activation='softmax')
     ])
 
+    # Ensure TF doesn't allocate all VRAM at start-up, so I can run multiple program instances concurrently
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    tf.keras.backend.set_session(tf.Session(config=config))
+
     optimizer = tf.train.AdamOptimizer()
-    model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=[tf.losses.absolute_difference])
+    model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=[absolute_difference])
     return model
+
+
+def normalize_dataset(X_train, X_test):
+    features_avg = X_train.mean(axis=0)
+    features_std = X_train.std(axis=0)
+    return (X_train-features_avg)/features_std, (X_test-features_avg)/features_std
+
 
 def main():
     # Just comment the next line out to disable eager execution
@@ -93,7 +120,7 @@ def main():
     set to False to use tfe.GradientTape() instead. Note that in order to use tfe.Gradient.tape(),
     eager execution must be enabled
     """
-    epochs = 400
+    epochs = 50
     batch_size = 64
     dataset_folder = '/home/fanta/.kaggle/competitions/uci-wine-quality-dataset'
 
@@ -104,23 +131,24 @@ def main():
 
     y = tf.keras.utils.to_categorical(y, num_classes=11)
 
-
     n_splits = 5
     dataset_splitter = model_selection.KFold(n_splits=n_splits, shuffle=True)
 
     start = time.time()
 
-    # Loop around the estimators
+    # Initialise metrics to be plotted
     avg_loss_by_epoch = np.zeros((epochs), dtype=np.float)
     avg_error_by_epoch = np.zeros((epochs), dtype=np.float)
     val_avg_loss_by_epoch = np.zeros((epochs), dtype=np.float)
     val_avg_error_by_epoch = np.zeros((epochs), dtype=np.float)
+    # Go around every fold
     for fold, (train_idx, val_idx) in enumerate(dataset_splitter.split(X, y)):
         print('\nTraining fold {} of {}.'.format(fold, n_splits))
         model = get_compiled_model()
         # Split dataset between training and validation set
         X_train, X_val = X[train_idx], X[val_idx]
         y_train, y_val = y[train_idx], y[val_idx]
+        X_train, X_val = normalize_dataset(X_train, X_val)
         history = model.fit(x=X_train, y=y_train, validation_data=(X_val, y_val), shuffle=False, epochs=epochs, batch_size=batch_size, verbose=2)
         # Compute loss and accuracy for this fold
         loss_by_epoch = history.history['loss']
@@ -171,3 +199,21 @@ if __name__ == '__main__':
 # 400 epochs
 # Final val. loss=1.1593427044662927   final val. error=0.10552638304637627   (averages across folds)
 # It took 180.43536710739136 seconds
+
+# 200 epochs
+# Final val. loss=1.2299661381506835   final val. error=0.5689313082391819   (averages across folds)
+# It took 87.59770274162292 seconds
+
+# 200 epochs, deeper network
+# Final val. loss=1.2304934671804009   final val. error=0.5622761750204474   (averages across folds)
+# It took 92.3689968585968 seconds
+
+# dropout .3 at 4th layer
+# Final val. loss=1.1370621089066315   final val. error=0.5615007689203808   (averages across folds)
+# It took 100.11282062530518 seconds
+
+# droput .5
+# Final val. loss=1.1590469943171178   final val. error=0.5683999272185376   (averages across folds)
+# It took 100.55076003074646 seconds
+
+# TODO what is the best way to normalize the dataset? Try batch-normalization.
