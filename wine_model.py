@@ -81,7 +81,7 @@ def get_compiled_model():
     ])
 
     optimizer = tf.train.AdamOptimizer()
-    model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=[tf.losses.absolute_difference])
     return model
 
 def main():
@@ -112,7 +112,9 @@ def main():
 
     # Loop around the estimators
     avg_loss_by_epoch = np.zeros((epochs), dtype=np.float)
-    avg_accuracy_by_epoch = np.zeros((epochs), dtype=np.float)
+    avg_error_by_epoch = np.zeros((epochs), dtype=np.float)
+    val_avg_loss_by_epoch = np.zeros((epochs), dtype=np.float)
+    val_avg_error_by_epoch = np.zeros((epochs), dtype=np.float)
     for fold, (train_idx, val_idx) in enumerate(dataset_splitter.split(X, y)):
         print('\nTraining fold {} of {}.'.format(fold, n_splits))
         model = get_compiled_model()
@@ -122,13 +124,19 @@ def main():
         history = model.fit(x=X_train, y=y_train, validation_data=(X_val, y_val), shuffle=False, epochs=epochs, batch_size=batch_size, verbose=2)
         # Compute loss and accuracy for this fold
         loss_by_epoch = history.history['loss']
-        accuracy_by_epoch = history.history['acc'] if 'acc' in history.history else []
+        error_by_epoch = history.history['absolute_difference']
+        val_loss_by_epoch = history.history['val_loss']
+        val_error_by_epoch = history.history['val_absolute_difference']
         # Update overall loss and accuracy (average across all folds)
-        avg_accuracy_by_epoch += accuracy_by_epoch
+        avg_error_by_epoch += error_by_epoch
         avg_loss_by_epoch += loss_by_epoch
-    avg_accuracy_by_epoch /= n_splits
+        val_avg_error_by_epoch += val_error_by_epoch
+        val_avg_loss_by_epoch += val_loss_by_epoch
+    avg_error_by_epoch /= n_splits
     avg_loss_by_epoch /= n_splits
-    print('Final accuracy={}   final loss={}'.format(avg_accuracy_by_epoch[-1], avg_loss_by_epoch[-1]))
+    val_avg_error_by_epoch /= n_splits
+    val_avg_loss_by_epoch /= n_splits
+    print('Final accuracy={}   final error={}'.format(avg_error_by_epoch[-1], avg_loss_by_epoch[-1]))
 
 
 
@@ -140,11 +148,15 @@ def main():
     fig.suptitle('Training Metrics')
 
     axes[0].set_ylabel("Loss", fontsize=14)
-    axes[0].plot(avg_loss_by_epoch)
+    axes[0].plot(avg_loss_by_epoch, label='Training')
+    axes[0].plot(val_avg_loss_by_epoch, label='Validation')
+    axes[0].legend()
 
-    axes[1].set_ylabel("Accuracy", fontsize=14)
+    axes[1].set_ylabel("Absolute Error", fontsize=14)
     axes[1].set_xlabel("Epoch", fontsize=14)
-    axes[1].plot(avg_accuracy_by_epoch)
+    axes[1].plot(avg_error_by_epoch, label='Training')
+    axes[1].plot(val_avg_error_by_epoch, label='Validation')
+    axes[1].legend()
 
     plt.show()
 
