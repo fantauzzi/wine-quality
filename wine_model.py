@@ -93,7 +93,7 @@ def main():
     set to False to use tfe.GradientTape() instead. Note that in order to use tfe.Gradient.tape(),
     eager execution must be enabled
     """
-    epochs = 200
+    epochs = 400
     batch_size = 64
     dataset_folder = '/home/fanta/.kaggle/competitions/uci-wine-quality-dataset'
 
@@ -136,7 +136,7 @@ def main():
     avg_loss_by_epoch /= n_splits
     val_avg_error_by_epoch /= n_splits
     val_avg_loss_by_epoch /= n_splits
-    print('Final accuracy={}   final error={}'.format(avg_error_by_epoch[-1], avg_loss_by_epoch[-1]))
+    print('\nFinal val. loss={}   final val. error={}   (averages across folds)'.format(val_avg_loss_by_epoch[-1], val_avg_error_by_epoch[-1]))
 
 
 
@@ -163,3 +163,11 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+# 200 epochs
+# Final val. loss1.240027957177968   final val. error=0.10588621345913296
+# It took 91.67309617996216 seconds
+
+# 400 epochs
+# Final val. loss=1.1593427044662927   final val. error=0.10552638304637627   (averages across folds)
+# It took 180.43536710739136 seconds
