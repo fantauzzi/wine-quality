@@ -5,7 +5,6 @@ import time
 import matplotlib.pyplot as plt
 from sklearn import model_selection
 import tensorflow as tf
-import tensorflow.contrib.eager as tfe
 
 """
 Check the beginning of main() for parameters
@@ -43,52 +42,40 @@ def loss(model, X, y):
     return the_loss
 
 
-def grad(model, inputs, targets):
-    with tfe.GradientTape() as tape:
-        loss_value = loss(model, inputs, targets)
-    return tape.gradient(loss_value, model.variables)
-
-
-def train(model, X, y, batch_size, epochs):
-    train_ds = train_input_fn(X, y, batch_size=batch_size)
-    optimizer = tf.train.AdamOptimizer()
-
-    loss_by_epoch = []
-    accuracy_by_epoch = []
-
-    for epoch in range(epochs):
-        epoch_loss_avg = tfe.metrics.Mean()
-        epoch_error = tfe.metrics.Mean()
-        for batch, (batch_X, batch_y) in enumerate(tfe.Iterator(train_ds)):
-            grads = grad(model, batch_X, batch_y)
-            optimizer.apply_gradients(zip(grads, model.variables), global_step=tf.train.get_or_create_global_step())
-            epoch_loss_avg(loss(model, batch_X, batch_y))
-            correct_prediction = tf.equal(tf.argmax(model(batch_X), axis=1, output_type=tf.int32), batch_y)
-            epoch_error(tf.reduce_mean(tf.cast(correct_prediction, tf.float32)))
-        print('Epoch {}:  loss={}  accuracy={}'.format(epoch, epoch_loss_avg.result(), epoch_error.result()))
-        loss_by_epoch.append(epoch_loss_avg.result())
-        accuracy_by_epoch.append(epoch_error.result())
-
-    return loss_by_epoch, accuracy_by_epoch
-
 def absolute_difference(y1, y2):
-    res = tf.reduce_mean(tf.cast(tf.abs(tf.argmax(y1, output_type=tf.int32, axis=1) -tf.argmax(y2, output_type=tf.int32, axis=1)), tf.float32))
+    res = tf.reduce_mean(
+        tf.cast(tf.abs(tf.argmax(y1, output_type=tf.int32, axis=1) - tf.argmax(y2, output_type=tf.int32, axis=1)),
+                tf.float32))
     return res
 
 
-
 def get_compiled_model():
-    alpha = .0
-    reg=.008
-    # activation = tf.keras.layers.LeakyReLU(alpha=alpha)
-    activation='relu'
+    reg = .008
+    kernel_reg = tf.contrib.layers.l2_regularizer(reg)
+    activation = tf.nn.relu
+
+    """
+    activation = 'relu'
     model = tf.keras.models.Sequential([
         tf.keras.layers.InputLayer(input_shape=(11,)),
-        tf.keras.layers.Dense(192, activation=activation, kernel_regularizer=tf.keras.regularizers.l2(reg)),
+        tf.keras.layers.Dense(192, kernel_regularizer=tf.keras.regularizers.l2(reg)),
+        tf.keras.layers.Activation('relu'),
         tf.keras.layers.Dropout(rate=.5),
-        tf.keras.layers.Dense(96, activation=activation, kernel_regularizer=tf.keras.regularizers.l2(reg)),
-        tf.keras.layers.Dense(48, activation=activation, kernel_regularizer=tf.keras.regularizers.l2(reg)),
-        tf.keras.layers.Dense(11, activation='softmax')
+        tf.keras.layers.Dense(96, kernel_regularizer=tf.keras.regularizers.l2(reg)),
+        tf.keras.layers.Activation('relu'),
+        tf.keras.layers.Dense(48, kernel_regularizer=tf.keras.regularizers.l2(reg)),
+        tf.keras.layers.Activation('relu'),
+        tf.keras.layers.Dense(11),
+        tf.keras.layers.Activation('softmax'),
+    ])
+    """
+
+    model = tf.keras.models.Sequential([
+        tf.layers.Dense(units=192, activation=activation, input_shape=(11,), kernel_regularizer=kernel_reg),
+        tf.layers.Dropout(rate=.5),
+        tf.layers.Dense(units=96, activation=activation, kernel_regularizer=kernel_reg),
+        tf.layers.Dense(units=48, activation=activation, kernel_regularizer=kernel_reg),
+        tf.layers.Dense(units=11, activation=tf.nn.softmax)
     ])
 
     # Ensure TF doesn't allocate all VRAM at start-up, so I can run multiple program instances concurrently
@@ -104,12 +91,14 @@ def get_compiled_model():
 def normalize_dataset(X_train, X_test):
     features_avg = X_train.mean(axis=0)
     features_std = X_train.std(axis=0)
-    return (X_train-features_avg)/features_std, (X_test-features_avg)/features_std
+    return (X_train - features_avg) / features_std, (X_test - features_avg) / features_std
+
 
 def min_max_normalize_dataset(X_train, X_test):
     features_min = X_train.min(axis=0)
     features_max = X_train.max(axis=0)
-    return (X_train-features_min)/(features_max-features_min), (X_test-features_min)/(features_max-features_min)
+    return (X_train - features_min) / (features_max - features_min), (X_test - features_min) / (
+            features_max - features_min)
 
 
 def main():
@@ -144,13 +133,14 @@ def main():
     val_avg_error_by_epoch = np.zeros((epochs), dtype=np.float)
     # Go around every fold
     for fold, (train_idx, val_idx) in enumerate(dataset_splitter.split(X, y)):
-        print('\nTraining fold {} of {}.'.format(fold+1, n_splits))
+        print('\nTraining fold {} of {}.'.format(fold + 1, n_splits))
         model = get_compiled_model()
         # Split dataset between training and validation set
         X_train, X_val = X[train_idx], X[val_idx]
         y_train, y_val = y[train_idx], y[val_idx]
         X_train, X_val = min_max_normalize_dataset(X_train, X_val)
-        history = model.fit(x=X_train, y=y_train, validation_data=(X_val, y_val), shuffle=False, epochs=epochs, batch_size=batch_size, verbose=2)
+        history = model.fit(x=X_train, y=y_train, validation_data=(X_val, y_val), shuffle=False, epochs=epochs,
+                            batch_size=batch_size, verbose=2)
         # Compute loss and accuracy for this fold
         loss_by_epoch = history.history['loss']
         error_by_epoch = history.history['absolute_difference']
@@ -165,9 +155,8 @@ def main():
     avg_loss_by_epoch /= n_splits
     val_avg_error_by_epoch /= n_splits
     val_avg_loss_by_epoch /= n_splits
-    print('\nFinal val. loss={}   final val. error={}   (averages across folds)'.format(val_avg_loss_by_epoch[-1], val_avg_error_by_epoch[-1]))
-
-
+    print('\nFinal val. loss={}   final val. error={}   (averages across folds)'.format(val_avg_loss_by_epoch[-1],
+                                                                                        val_avg_error_by_epoch[-1]))
 
     end = time.time()
     print('It took {} seconds'.format(end - start))
@@ -256,6 +245,21 @@ if __name__ == '__main__':
 # Final val. loss=1.1360728829271847   final val. error=0.49822145353021163   (averages across folds)
 # It took 531.8769500255585 seconds
 
+# Adam 1000 epochs, default lr, TF layers L2 reg=.008
+# Final val. loss=1.0994329188891447   final val. error=0.4936234264810076   (averages across folds)
+# It took 257.1024866104126 seconds
+
+# Same as above but with Keras layers
+# Final val. loss=1.1357062463832832   final val. error=0.5030599213093593   (averages across folds)
+# It took 276.7482933998108 seconds
+
+# Same as above
+# Final val. loss=1.133529577071434   final val. error=0.4994897960706142   (averages across folds)
+# It took 277.7925503253937 seconds
+
+# Same as above but with TF layers again
+# Final val. loss=1.1009739981316062   final val. error=0.49158391335775053   (averages across folds)
+# It took 257.1057503223419 seconds
+
+
 # TODO try with TF layers instead of Keras. Submit a prediction to Kaggle.
-
-
