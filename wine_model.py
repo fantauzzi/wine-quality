@@ -79,19 +79,15 @@ def absolute_difference(y1, y2):
 
 def get_compiled_model():
     alpha = .0
+    reg=.008
     # activation = tf.keras.layers.LeakyReLU(alpha=alpha)
-    activation='tanh'
+    activation='relu'
     model = tf.keras.models.Sequential([
         tf.keras.layers.InputLayer(input_shape=(11,)),
-        # tf.keras.layers.Dense(256),
-        # tf.keras.layers.LeakyReLU(alpha=alpha),
-        tf.keras.layers.Dense(192, activation=activation),
-        # tf.keras.layers(alpha=alpha),
+        tf.keras.layers.Dense(192, activation=activation, kernel_regularizer=tf.keras.regularizers.l2(reg)),
         tf.keras.layers.Dropout(rate=.5),
-        tf.keras.layers.Dense(96, activation=activation),
-        # tf.keras.layers.LeakyReLU(alpha=alpha),
-        tf.keras.layers.Dense(48, activation=activation),
-        # tf.keras.layers.LeakyReLU(alpha=alpha),
+        tf.keras.layers.Dense(96, activation=activation, kernel_regularizer=tf.keras.regularizers.l2(reg)),
+        tf.keras.layers.Dense(48, activation=activation, kernel_regularizer=tf.keras.regularizers.l2(reg)),
         tf.keras.layers.Dense(11, activation='softmax')
     ])
 
@@ -110,6 +106,11 @@ def normalize_dataset(X_train, X_test):
     features_std = X_train.std(axis=0)
     return (X_train-features_avg)/features_std, (X_test-features_avg)/features_std
 
+def min_max_normalize_dataset(X_train, X_test):
+    features_min = X_train.min(axis=0)
+    features_max = X_train.max(axis=0)
+    return (X_train-features_min)/(features_max-features_min), (X_test-features_min)/(features_max-features_min)
+
 
 def main():
     # Just comment the next line out to disable eager execution
@@ -120,8 +121,8 @@ def main():
     set to False to use tfe.GradientTape() instead. Note that in order to use tfe.Gradient.tape(),
     eager execution must be enabled
     """
-    epochs = 50
-    batch_size = 64
+    epochs = 1000
+    batch_size = 128
     dataset_folder = '/home/fanta/.kaggle/competitions/uci-wine-quality-dataset'
 
     # Load dataset and convert it to numpy arrays
@@ -143,12 +144,12 @@ def main():
     val_avg_error_by_epoch = np.zeros((epochs), dtype=np.float)
     # Go around every fold
     for fold, (train_idx, val_idx) in enumerate(dataset_splitter.split(X, y)):
-        print('\nTraining fold {} of {}.'.format(fold, n_splits))
+        print('\nTraining fold {} of {}.'.format(fold+1, n_splits))
         model = get_compiled_model()
         # Split dataset between training and validation set
         X_train, X_val = X[train_idx], X[val_idx]
         y_train, y_val = y[train_idx], y[val_idx]
-        X_train, X_val = normalize_dataset(X_train, X_val)
+        X_train, X_val = min_max_normalize_dataset(X_train, X_val)
         history = model.fit(x=X_train, y=y_train, validation_data=(X_val, y_val), shuffle=False, epochs=epochs, batch_size=batch_size, verbose=2)
         # Compute loss and accuracy for this fold
         loss_by_epoch = history.history['loss']
@@ -216,4 +217,45 @@ if __name__ == '__main__':
 # Final val. loss=1.1590469943171178   final val. error=0.5683999272185376   (averages across folds)
 # It took 100.55076003074646 seconds
 
-# TODO what is the best way to normalize the dataset? Try batch-normalization.
+# RELU and normalization [0, 1]
+# Final val. loss=1.050925898971086   final val. error=0.488251948486815   (averages across folds)
+# It took 102.0314393043518 seconds
+
+# L2 regularizers for weights on every dense layer
+# Final val. loss=1.1740582234589088   final val. error=0.5421094300626239   (averages across folds)
+# It took 110.20939540863037 seconds
+
+# L2 reg. with l=.008
+# Final val. loss=1.1668800430232977   final val. error=0.5352356844490612   (averages across folds)
+# It took 108.70994210243225 seconds
+
+# 400 epochs
+# Final val. loss=1.152037846473799   final val. error=0.5199142493920655   (averages across folds)
+# It took 217.8574903011322 seconds
+
+# batch size = 128
+# Final val. loss=1.155156646635937   final val. error=0.5122517398296567   (averages across folds)
+# It took 115.09231066703796 seconds
+
+# 1000 epochs
+# Final val. loss=1.136638939387792   final val. error=0.5002537990202389   (averages across folds)
+# It took 280.46708631515503 seconds
+
+# SGD lr=0.05
+# Final val. loss=1.1638371995259298   final val. error=0.5316476401120169   (averages across folds)
+# It took 463.5820310115814 seconds
+
+# Adagrad lr=.1
+# Final val. loss=1.1477592689852358   final val. error=0.5132653062366341   (averages across folds)
+# It took 471.4418022632599 seconds
+
+# Adadelta
+# rubbish
+
+# Adam 1000 epochs, default lr
+# Final val. loss=1.1360728829271847   final val. error=0.49822145353021163   (averages across folds)
+# It took 531.8769500255585 seconds
+
+# TODO try with TF layers instead of Keras. Submit a prediction to Kaggle.
+
+
